@@ -1,156 +1,267 @@
-Release Notes — OpenSearch UI
-All changes since build 26.06.0.67
-====================================
+Release Notes — EDR Telemetry Store Explorer
+Version 26.09.0.130
 
-TIME FILTER
+
+HUNT — IOC TYPE PREFIX (FREE-TEXT MODE)
+----------------------------------------
+- Lines starting with a recognized type keyword force the IOC type for that line,
+  overriding auto-detection. Supported separators after the keyword: space, comma,
+  or colon (with optional surrounding whitespace). Everything after a second comma
+  is treated as a note/description and ignored.
+- Supported keywords (case-insensitive):
+    file / filename / file_path_name → Process / File
+    domain / dns                     → DNS
+    url                              → URL
+    ip / ip address                  → IP
+    sha256 / sha256 hash / sha2 / sha-256 / sha2 → SHA256
+    sha1 / sha1 hash / sha-1         → SHA1
+    md5 / md5 hash                   → MD5
+    registry_path_key                → Registry
+- Examples:
+    file,DF0E2D20B4E8473699.TMP
+    ip address ,5.39.222.67 ,C2 Server
+    SHA256 hash,b25b87cfcedc69e27570afa1f4b1ca85aab07fd416c5d0228f1fe32886e0a9a6,PortStarter DLL
+- Wildcards in paths: use * or <placeholder> (e.g. <user>) in a path — the process
+  normalizer converts <…> to * automatically. Wildcard segments generate an AND query
+  requiring all non-wildcard parts to appear in the field value, e.g.
+  "C:\Users\*\Downloads\sh.ps1" matches any username in that path.
+
+HUNT — PROCESS / FILE SEARCH FIX
+----------------------------------
+- Bare filenames (e.g. "firefox.exe") now use wildcard-contains queries instead of
+  match_phrase, so they correctly hit full stored paths (keyword-mapped fields) on
+  pFullName, cmdLine, fileAttributes.path, and procFileAttrs.path. Case-insensitive.
+
+
+Version 26.09.0.129
+
+
+HUNT
+----
+- Process/File IOC type: bare filenames (e.g. "firefox.exe") now use a wildcard-contains
+  query instead of match_phrase, so they correctly match anywhere inside a stored full
+  path (e.g. "C:\Program Files\Mozilla Firefox\firefox.exe") on keyword-mapped fields.
+  Match is case-insensitive. Affects all four search fields: pFullName, cmdLine,
+  fileAttributes.path, procFileAttrs.path.
+
+LIVE TAIL — TABLE TAB
+---------------------
+- Stats bar now shows the tail start time: "Live · 12:13:44 · 425 total · 0 loaded · since 12:10:22".
+- "Loaded" counter starts at 0 when tail begins and counts only events received via
+  polling (not the 500-event initial load).
+- Table tab no longer silently fails to update when the initial load returned 0 results;
+  the full table structure is now rebuilt on the first poll that delivers new events.
+- Right-click context menu on Table rows now correctly references the displayed event
+  (tblHitsRef) instead of lastResults, which is never updated by tail polls.
+
+
+Version 26.09.0.128
+
+
+COPY BUTTONS — EVENT DETAILS & RESULTS
+--------------------------------------
+- Table tab event-detail panel: "Copy Raw JSON" and "Copy CSV" buttons added to
+  the right side of the EVENT DETAILS caption. Copy the currently open event.
+- Results tab event cards: "Copy Raw JSON" and "Copy CSV" buttons added beside the
+  existing "Raw JSON" toggle in each card header.
+- CSV for a single event is emitted as field,value rows (one field per line);
+  nested objects flatten to dot-notation keys, arrays are JSON-encoded, and
+  _index / _id are included. Buttons flash "Copied!" on success and fall back to
+  a legacy copy path in insecure/older-browser contexts.
+
+RESIZABLE EVENT DETAILS PANEL
+-----------------------------
+- The Table tab EVENT DETAILS panel can now be resized by dragging its left edge.
+  Width is clamped (min 260px, table keeps >=200px) and persists across sessions.
+
+GROUP BY
+--------
+- Results now scroll when they exceed the visible area (previously the overflow
+  was unreachable).
+- New "Copy Results (CSV)" button exports all buckets in the current sort order:
+  each group-by field plus Count, Hosts, First Seen, Last Seen.
+
+OPTIMIZATION
+------------
+- "Copy CSV" button on the Daily Summary table (Day, Events, Unique GUID, Avg,
+  including the totals row).
+- "Copy CSV" button on every per-day Field A / Field B card (Value, Count, Percent).
+
+
+Version 26.08.0.126
+
+
+OPENIOC SEARCH RULES & IOCs COLUMN
+----------------------------------
+- New OpenIOC Search Rules (Settings) let you define per-event-type field mappings
+  and clause rules used when evaluating .ioc criteria; rules persist with core
+  settings.
+- Results tables gained an IOCs-matched column showing which indicators each event
+  matched, populated from a per-IOC aggregation.
+
+
+Version 26.08.0.125
+
+
+OPENIOC TAB
 -----------
-- From / To inputs are now date-time pickers (native browser picker, seconds precision).
-- Timezone dropdown added to the custom range section (default: Browser local).
-- Right-click "±5 min around event" and "+5 min after event" update the Time Filter
-  sidebar section instead of adding a filter row to the query builder.
-- Right-click time filters use UTC values and automatically select UTC in the
-  timezone dropdown, matching the UTC timestamps shown in events.
+- New OpenIOC tab for running FireEye/Trellix .ioc files directly against the EDR
+  Telemetry OpenSearch cluster.
+- File tree loads the local OpenIOC/ directory with full tactic/OS/confidence hierarchy.
+  Supports individual file selection and entire folder selection with cascade.
+- Tri-state folder checkboxes: checked (all files), unchecked (none), indeterminate
+  (some). Selecting a parent folder selects all descendant .ioc files automatically.
+- Real-time filter input narrows the tree by file name as you type.
+- "Select all" / "Deselect all" controls. Selected file count shown at all times.
+- Parses the OpenIOC boolean criteria tree (AND/OR Indicators, IndicatorItem leaves).
+  Supports all 7 event types: processEvent, fileWriteEvent, ipv4NetworkEvent,
+  regKeyEvent, urlMonitorEvent, dnsLookupEvent, imageLoadEvent.
+  Supports all 7 conditions: is, contains, matches/regex, starts-with, ends-with,
+  greater-than, less-than. Respects the negate and preserve-case attributes.
+- Two-phase search — same architecture as Hunt:
+    Step 1 (aggregation): single query combining all selected IOCs in one
+    bool.should produces an Affected Hosts table showing host, maGuid,
+    systemUniqueID, event count, first seen, last seen.
+    Step 2: "Load matching events" fetches event cards on demand with pagination.
+- Always exactly 2 OpenSearch queries regardless of how many .ioc files are selected.
+  Client-side re-evaluation attributes each event to the specific IOC file(s) that
+  matched, shown as labeled badges on every event card.
+- Right-click cells in the Affected Hosts table for the standard context menu
+  (Include / Exclude / Story Graph / Group By). Right-click First Seen / Last Seen
+  to set a time >= / <= sidebar filter.
+- Active sidebar filters and the current time range are applied to the search,
+  so results are scoped to the same dataset as the main search.
+- Malformed or empty .ioc files are skipped gracefully; unmapped OpenIOC fields
+  are silently ignored without affecting the rest of the criteria.
+- "No matching events found" message includes IOC count, total events searched,
+  and search duration.
+- Path traversal protection: the backend validates all requested .ioc paths resolve
+  inside the OpenIOC/ directory before reading.
 
-TABLE VIEW
-----------
-- Timezone dropdown added to the table toolbar (beside the column set selector).
-  Default is UTC. Changing the selection immediately re-renders the Time column.
-  Selection is remembered across sessions.
-- Resizing a column no longer accidentally triggers a column sort.
-- Row display cap removed — all returned results now render in the table.
-  Previously, results were silently capped at 250 rows.
 
-CONNECTION SETTINGS
--------------------
-- "Paste All Certificates" is the primary cert input. Paste the full output of
-  "show certificates hxclient" — CA cert, client cert, and private key are
-  detected and saved automatically, encrypted at rest.
-- Individual .pem file paths moved to a collapsible sub-section (collapsed by default).
-- "Pull certs from appliance" (SSH) feature removed.
-- Certificates are encrypted using Fernet (AES-128-CBC + HMAC) and stored as
-  .enc files in certs/<server-name>/. Decryption happens in memory only during
-  the TLS handshake; temporary files are deleted immediately.
+Version 26.08.0.124  (improvements since 26.06.0.67)
 
-SERVER GROUPS
--------------
-- Optimization tab is grayed out and disabled when a Server Group is selected
-  (optimization is not available in group mode).
+
+HUNT
+----
+- Paste free-form threat-intelligence text or structured CSV (Indicator_type,Data,Note)
+  and run it as a single search across all configured IOC types in one click.
+- IOC text is color-coded in-place inside the paste area as you type (CSS overlay).
+- Saved Hunts: save the current IOC input under a name, reload or delete it at any
+  time. Hunts persist in ets_explorer_custom.json and survive page reload.
+- Two-phase architecture: Step 1 runs an aggregation-only query and shows the
+  Affected Hosts table (host, maGuid, systemUniqueID, event count, first seen,
+  last seen). Step 2 loads the matching event cards on demand via "Load matching
+  events". Event counts and timestamps are accurate across the full time range,
+  not just the fetched page.
+- Right-click any cell in the Affected Hosts table (host/maGuid/systemUniqueID)
+  to open the standard context menu — Include / Exclude filter, Story Graph,
+  Add to Group By, etc.
+- Right-click First Seen to add a "time ≥ this timestamp" sidebar filter;
+  right-click Last Seen to add a "time ≤ this timestamp" sidebar filter.
+- Right-click any field in a Hunt event summary row or the event detail panel
+  opens the same context menu as in the Table view.
+- Active sidebar filters and the current time range are applied when running a hunt,
+  so the hunt is scoped to the same dataset as the main search.
+- Per-field match operator (Equals, Contains, Starts with, Ends with) — configurable
+  per field in Settings → Hunt Target Definitions. Changes save immediately.
+- Wildcard path searches for Windows paths: backslash-escaped, case-insensitive,
+  with a match_phrase fallback on the longest concrete segment for text-mapped fields.
+- Path placeholders (<user>, <username>, <REDACTED>) are automatically converted
+  to wildcard patterns so paths match regardless of the actual username.
+- Hash auto-detection by length and hex format — no type keyword needed.
+  SHA256 (64 chars), SHA1 (40 chars), MD5 (32 chars) all recognized automatically.
+- CSV mode: extended type aliases (sha2, sha-256, sha-1, file_hash, etc.);
+  hash type auto-detected from the value when the type column is unrecognized.
+- IOC match badge in event cards shows the specific matched value.
+  Stats bar shows unique host count across all returned events.
+- Hunt results sorted oldest-first. Clicking a result card opens the full event
+  detail panel on the right, same as in the Table view.
+
+
+GROUP BY
+--------
+- New Group By tab: aggregate events by one or more fields without leaving the UI.
+- Right-click any cell in the table, detail panel, or Hunt results and choose
+  "Add to Group By" to send that field to the Group By tab instantly.
+- Fields can also be typed manually in the Add field input.
+- Single field uses a terms aggregation; multiple fields use multi_terms
+  (OpenSearch 2.1+), combined with a separator in the results.
+- Results table: value(s), event count with a proportional mini bar, unique host
+  count (cardinality aggregation), first seen, and last seen timestamps.
+- All column headers are sortable client-side — no re-fetch needed.
+- Left-click a bucket row to apply that value as an equals filter and run a search.
+- Right-click a bucket row to include or exclude the value from filters.
+- "Apply current filters" checkbox scopes the aggregation to the same data as
+  the main search (active sidebar filters + time filter).
+- Top N selector: 10 / 25 / 50 / 100 / 250 / 500 buckets.
+- Warning shown when sum_other_doc_count > 0 (more buckets exist than Top N).
+
+
+SETTINGS & PERSISTENCE
+-----------------------
+- Hunt type definitions, column sets, and predefined filter defaults are stored in
+  ets_explorer_core_setting.json in the app launch directory.
+- Custom column sets, server groups, active group, and user-specific filters are
+  stored in ets_explorer_custom.json.
+- Hunt type definitions are editable in Settings → Hunt Target Definitions and
+  changes write to disk immediately. "Reset to defaults" restores hardcoded defaults.
+- All 8 built-in column sets (Default, Process, Network, File, DNS, Registry,
+  ScheduleTask, Script) now have predefined filter templates.
+
 
 FILTER PANEL
 ------------
 - Filter panel split into two labeled sections:
-    "Custom filters"     — filters added via +Add or right-click Include/Exclude.
-                           These survive column set switches.
-    "Column set filters" — predefined filters for the active column set.
-                           Replaced automatically when switching sets.
-- Column set filters are displayed read-only (no edit inputs, no delete button),
-  making clear they are managed by the column set, not the user.
-- Switching a column set now automatically triggers a new search.
-- Right-click Include on a numeric value uses the "equals" operator.
-  Right-click Exclude on a numeric value uses "not_equals".
-- Fixed: predefined filter field/value edits and delete in Settings were broken
-  due to double-quoted attribute serialization. Now uses single-quoted strings.
+    Custom filters     — added via +Add or right-click Include / Exclude.
+                         Survive column set switches.
+    Column set filters — predefined per column set, shown read-only.
+                         Replaced automatically when the set changes.
+- Column set filter rows have an editable value input for quick search-time
+  customisation. Values reset on page reload; the field, operator, and logic
+  are fixed by the column set definition.
+- Switching a column set automatically triggers a new search.
 
-COLUMN SETS
+
+TIME FILTER
 -----------
-- "Column set" label added before the column set picker in the table toolbar.
-- Registry Events — "Reg Key Name" column now displays both registry.keyName
-  and registry.regKeyName combined in one cell (e.g. "HKLM\...\Key / ValueName").
-  Right-click filtering still targets registry.keyName.
+- Custom range From / To inputs are now native date-time pickers (seconds precision).
+- Timezone dropdown in the custom range section (default: browser local).
+- Right-click "±5 min around event" and "+5 min after event" update the Time Filter
+  inputs rather than adding filter rows.
+- Right-click time filters use UTC values and auto-select UTC in the timezone picker.
 
-PREDEFINED FILTERS
-------------------
-- All 8 built-in column sets now have predefined filter templates
-  (previously only Default, Process, File, and DNS had defaults).
 
-  DNS Events:
-    OR  eventType equals "DNS Query"
-    OR  eventType equals "Network Accessed"
-    AND dns.name, network.dnsNames.name contains (empty)
+TABLE VIEW
+----------
+- Timezone picker in the table toolbar (default UTC). Changing it re-renders the
+  Time column immediately; selection is remembered across sessions.
+- All returned results render in the table — no row cap.
+- Column resize no longer accidentally triggers a column sort.
+- Optimization tab is grayed out and disabled when a Server Group is active.
 
-  Default:
-    AND host contains (empty)
-    OR  cmdLine contains (empty)
 
-  Process Events:
-    AND pFullName contains (empty)
+ACCESS LOG
+----------
+- HTTP access log written to access.log in the app launch directory.
+  Rotates at 20 MB, keeps 5 backup files (~120 MB total history).
+- Each line includes: timestamp (ms UTC), client IP:port, request line, status,
+  response size, duration, X-Forwarded-For, X-Real-IP, X-Forwarded-Proto/Host/Port/
+  Prefix, Host header, User-Agent, and Referer.
+- Access lines go only to access.log — the main console log stays uncluttered.
 
-  File Events:
-    AND eventType contains "File"
-    OR  fileAttributes.path contains (empty)
-    OR  fileAttributes.md5 contains (empty)
 
-  Network Events:
-    OR  eventType contains "network"
-    OR  eventType contains "dns"
-    AND network.dstIp contains (empty)
-    AND network.dstPort equals (empty)
-    AND network.protocol contains (empty)
+CONNECTION
+----------
+- "Paste All Certificates" is the primary cert input. Paste the full output of
+  the appliance "show certificates hxclient" command — CA cert, client cert,
+  and private key are detected and saved automatically, encrypted at rest.
+- Certificates encrypted with Fernet (AES-128-CBC + HMAC-SHA256) and stored as
+  .enc files under certs/<server-name>/. Decryption happens in memory only.
 
-  Registry Events:
-    OR  eventType contains "reg"
-    OR  registry.keyName, registry.regKeyName contains (empty)
-    AND registry.keyValueName contains (empty)
-    AND registry.keyValueName contains (empty)
-
-  ScheduleTask Events:
-    AND eventType contains "schedule"
-    AND schedtask.author contains (empty)
-    AND schedtask.name contains (empty)
-    AND schedtask.description contains (empty)
-    AND schedtask.commands contains (empty)
-
-  Script Events:
-    AND eventType contains "script"
-    AND scripts.intentions.name contains (empty)
-    AND scripts.intentions.lines contains (empty)
-
-- Built-in column set predefined filters always reload from code-defined defaults
-  on page load. Changes made in Settings during a session are not persisted for
-  built-in sets, ensuring updates to defaults take effect automatically on refresh.
-- Column set filter rows now have an editable value input. The field, operator, and
-  AND/OR logic remain fixed (defined by the column set); only the value can be typed
-  in at search time. Values are not saved — they reset on page reload.
-
-FILTER PANEL (continued)
-------------------------
-- Fixed: right-clicking the User column and selecting Include/Exclude previously
-  inserted "[object Object]" as the filter value. The filter now correctly targets
-  user.name with the actual username (e.g. "Joe"). Manual filters on user.name
-  also work correctly.
-
-UI
---
-- Search box placeholder updated to "contains search on all fields".
-- Help text below the search box updated to: "The search can be fast if the Time
-  filter is applied or the search using filters on specific columns is much faster".
-- Horizontal separator added above the Output section for visual clarity.
-- Hint added below the Filters section header: "Select fields from Event Details
-  by right click".
-
-OPTIMIZATION
-------------
-- "Use filters" checkbox added to the Optimization settings bar. When checked,
-  the active sidebar filters (custom and column set) and the time range are applied
-  to the aggregation query, scoping results to the same data as the main search.
-  When unchecked (default), the aggregation runs across all data as before.
-
-BUG FIXES
----------
-- Fixed: starting the app with cert paths pointing to .enc files from a previous
-  installation (encrypted with a different key) caused a crash — the app tried to
-  load the raw encrypted binary as a PEM certificate. The app now skips the CA cert
-  load gracefully and logs a clear message to re-save the certificates in Settings.
-  Client cert/key decryption failure is also handled without crashing.
 
 LIVE TAIL
 ---------
-- Fixed: tail polling stopped returning new events after the first update. Root cause:
-  the high-watermark filter used "greater than" (exclusive), which silently dropped any
-  new events that share the same timestamp as the last seen event. Changed to "greater
-  than or equal" with client-side de-duplication by document _id, so no events are
-  ever missed regardless of timestamp precision.
-- Fixed: concurrent poll executions could overlap when the poll interval is shorter
-  than the round-trip time. Added a guard so only one poll runs at a time.
-- Table is now automatically sorted by Time descending when tail mode starts, so the
-  newest events are always visible at the top. Sort is cleared when tail stops.
+- New events delivered via high-watermark polling with client-side _id deduplication
+  so no event is ever missed regardless of timestamp precision.
+- Only one poll runs at a time; the table sorts by Time descending when tail starts.

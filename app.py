@@ -2,12 +2,14 @@ import warnings
 warnings.filterwarnings("ignore", message=".*OpenSSL.*")
 
 # ── stdlib imports (safe before any third-party check) ────────────────────────
+import json
 import logging
 import os
 import re
 import ssl
 import tempfile
 from importlib.metadata import version as _pkg_version, PackageNotFoundError as _PkgNF
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -53,13 +55,13 @@ _check_requirements()
 
 # ── Third-party imports ───────────────────────────────────────────────────────
 import urllib3
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, g, render_template, request, jsonify
 import requests
 from requests.adapters import HTTPAdapter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-VERSION = "26.06.0.107"
+VERSION = "26.09.0.130"
 
 
 def _load_fernet():
@@ -101,6 +103,62 @@ def _decrypt(path_str):
 
 
 app = Flask(__name__)
+
+# ── Access log — 20 MB × 5 rotating files ────────────────────────────────────
+_access_log = logging.getLogger("opensearch_ui.access")
+_access_log.setLevel(logging.INFO)
+_access_log.propagate = False   # keep access lines out of the main console log
+_access_handler = RotatingFileHandler(
+    "access.log", maxBytes=20 * 1024 * 1024, backupCount=5, encoding="utf-8",
+)
+_access_handler.setFormatter(logging.Formatter("%(message)s"))
+_access_log.addHandler(_access_handler)
+
+
+@app.before_request
+def _before_request():
+    g.req_start = datetime.now(timezone.utc)
+
+
+@app.after_request
+def _log_access(response):
+    now      = datetime.now(timezone.utc)
+    duration = round((now - g.get("req_start", now)).total_seconds() * 1000)
+    ts       = now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+    remote_addr = request.remote_addr or "-"
+    remote_port = str(request.environ.get("REMOTE_PORT", "-"))
+
+    # Reverse-proxy forwarding headers — critical for troubleshooting access
+    # through nginx / HAProxy / AWS ALB / any other load balancer.
+    xff        = request.headers.get("X-Forwarded-For",   "-")
+    x_real_ip  = request.headers.get("X-Real-IP",         "-")
+    x_proto    = request.headers.get("X-Forwarded-Proto",  "-")
+    x_host     = request.headers.get("X-Forwarded-Host",   "-")
+    x_port     = request.headers.get("X-Forwarded-Port",   "-")
+    x_prefix   = request.headers.get("X-Forwarded-Prefix", "-")
+    host_hdr   = request.headers.get("Host", "-")
+
+    path = request.path
+    if request.query_string:
+        path += "?" + request.query_string.decode("utf-8", "replace")
+    proto    = request.environ.get("SERVER_PROTOCOL", "HTTP/1.1")
+    size_str = str(response.content_length) if response.content_length is not None else "-"
+    ua       = request.headers.get("User-Agent", "-")
+    referer  = request.headers.get("Referer", "-")
+
+    _access_log.info(
+        '%s %s:%s "%s %s %s" %s %s %dms'
+        ' XFF="%s" X-Real-IP="%s" X-Proto="%s" X-Host="%s" X-Port="%s" X-Prefix="%s"'
+        ' Host="%s" UA="%s" Ref="%s"',
+        ts,
+        remote_addr, remote_port,
+        request.method, path, proto,
+        response.status_code, size_str, duration,
+        xff, x_real_ip, x_proto, x_host, x_port, x_prefix,
+        host_hdr, ua, referer,
+    )
+    return response
 
 
 def _request_factory(data):
@@ -270,7 +328,7 @@ def search():
         resp = http.post(
             f"{base_url}/{index}/_search",
             json=query_body,
-            timeout=30,
+            timeout=120,
             headers={"Content-Type": "application/json"},
             **ssl_kw,
         )
@@ -312,12 +370,106 @@ def save_certs():
     return jsonify(result)
 
 
+_CORE_SETTINGS   = Path("ets_explorer_core_setting.json")
+_CUSTOM_SETTINGS = Path("ets_explorer_custom.json")
+
+
+@app.route("/api/settings/core", methods=["GET"])
+def get_core_settings():
+    if _CORE_SETTINGS.exists():
+        return jsonify(json.loads(_CORE_SETTINGS.read_text(encoding="utf-8")))
+    return jsonify({})
+
+
+@app.route("/api/settings/core", methods=["POST"])
+def save_core_settings():
+    _CORE_SETTINGS.write_text(json.dumps(request.json, indent=2, ensure_ascii=False), encoding="utf-8")
+    return jsonify({"success": True})
+
+
+@app.route("/api/settings/custom", methods=["GET"])
+def get_custom_settings():
+    if _CUSTOM_SETTINGS.exists():
+        return jsonify(json.loads(_CUSTOM_SETTINGS.read_text(encoding="utf-8")))
+    return jsonify({})
+
+
+@app.route("/api/settings/custom", methods=["POST"])
+def save_custom_settings():
+    _CUSTOM_SETTINGS.write_text(json.dumps(request.json, indent=2, ensure_ascii=False), encoding="utf-8")
+    return jsonify({"success": True})
+
+
+@app.route("/api/openioc/tree")
+def openioc_tree():
+    root = Path("OpenIOC")
+    if not root.exists():
+        return jsonify({"error": "OpenIOC directory not found"}), 404
+
+    def walk(p):
+        if p.is_file():
+            return {"type": "file", "name": p.stem, "path": p.relative_to(root).as_posix()}
+        children = sorted(
+            [walk(c) for c in p.iterdir() if c.suffix == ".ioc" or c.is_dir()],
+            key=lambda x: (x["type"] == "file", x["name"])
+        )
+        count = sum(1 for _ in p.rglob("*.ioc"))
+        return {"type": "dir", "name": p.name, "children": children, "count": count}
+
+    return jsonify(walk(root))
+
+
+@app.route("/api/openioc/read", methods=["POST"])
+def openioc_read():
+    root = Path("OpenIOC").resolve()
+    paths = request.json.get("paths", [])
+    results = []
+    for rel in paths:
+        p = (root / rel).resolve()
+        if not str(p).startswith(str(root) + os.sep) and str(p) != str(root):
+            continue  # path traversal guard
+        if p.exists() and p.suffix == ".ioc":
+            results.append({"path": rel, "xml": p.read_text(encoding="utf-8")})
+    return jsonify({"files": results})
+
+
+@app.route("/api/openioc/list")
+def openioc_list():
+    import xml.etree.ElementTree as ET
+    root = Path("OpenIOC")
+    if not root.exists():
+        return jsonify({"error": "OpenIOC directory not found"}), 404
+    NS = "http://openioc.org/schemas/OpenIOC_1.1"
+    result = []
+    for p in sorted(root.rglob("*.ioc")):
+        rel = p.relative_to(root).as_posix()
+        folder = Path(rel).parent.as_posix()
+        entry = {"path": rel, "name": p.stem, "folder": folder, "modified": "", "authored": "", "author": "", "desc": p.stem}
+        try:
+            t = ET.parse(p)
+            r = t.getroot()
+            entry["modified"] = r.get("last-modified", "")
+            authored = r.find(f".//{{{NS}}}authored_date")
+            if authored is not None:
+                entry["authored"] = (authored.text or "").strip()
+            author = r.find(f".//{{{NS}}}authored_by")
+            if author is not None and author.text:
+                entry["author"] = author.text.strip()
+            desc = r.find(f".//{{{NS}}}short_description")
+            if desc is not None and desc.text:
+                entry["desc"] = desc.text.strip()
+        except Exception:
+            pass
+        result.append(entry)
+    return jsonify({"files": result})
+
+
 if __name__ == "__main__":
     from waitress import serve
     host, port = "0.0.0.0", 5001
     log.info("OpenSearch UI v%s  →  http://%s:%d", VERSION, host, port)
     try:
-        serve(app, host=host, port=port)
+        serve(app, host=host, port=port, threads=32)
     except OSError as e:
         if e.errno == 48 or "Address already in use" in str(e):
             sep = "=" * 62
