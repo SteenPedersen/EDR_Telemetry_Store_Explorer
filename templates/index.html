@@ -683,9 +683,41 @@
     .oioc-ioc-section-body { padding: 6px 8px; }
     html.dark .oioc-ioc-section { border-color: #30363d; }
     html.dark .oioc-ioc-section-hdr { background: #21262d; }
+
+    /* ── Backend offline banner ────────────────────────────────────────── */
+    #backend-offline-banner {
+      display: none;
+      position: fixed; top: 0; left: 0; right: 0; z-index: 99999;
+      background: #dc2626; color: #fff;
+      padding: 7px 16px;
+      font-size: 0.82rem; font-weight: 600;
+      align-items: center; gap: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.35);
+    }
+    #backend-offline-banner.visible { display: flex; }
+    #backend-offline-banner svg { flex-shrink: 0; }
+    #backend-offline-banner .bob-msg { flex: 1; }
+    #backend-offline-banner .bob-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #fca5a5; flex-shrink: 0;
+      animation: bob-pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes bob-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: .4; transform: scale(.7); }
+    }
   </style>
 </head>
 <body>
+
+<!-- Backend offline indicator — shown by JS health check when Flask is unreachable -->
+<div id="backend-offline-banner" role="alert" aria-live="assertive">
+  <div class="bob-dot"></div>
+  <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+    <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+  </svg>
+  <span class="bob-msg">Application server offline — the backend is not running. Retrying…</span>
+</div>
 
 <nav class="navbar navbar-dark bg-dark px-3" style="height:52px">
   <span class="navbar-brand mb-0 h6 d-flex align-items-center gap-2">
@@ -10687,5 +10719,41 @@ function toggleTheme() {
   <button id="gb-ctx-include" class="ctx-btn">&#8853; Include in Filter</button>
   <button id="gb-ctx-exclude" class="ctx-btn">&#8856; Exclude from Filter</button>
 </div>
+
+<script>
+(function () {
+  const POLL_MS   = 5000;  // check every 5 seconds
+  const TIMEOUT_MS = 3000; // give up on a request after 3 seconds
+  let _offline = false;
+
+  function _setBanner(offline) {
+    if (offline === _offline) return;
+    _offline = offline;
+    const b = document.getElementById('backend-offline-banner');
+    if (!b) return;
+    if (offline) {
+      b.classList.add('visible');
+    } else {
+      b.classList.remove('visible');
+    }
+  }
+
+  async function _checkBackend() {
+    try {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+      const res  = await fetch('/api/ping', { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(tid);
+      _setBanner(!res.ok);
+    } catch (_) {
+      _setBanner(true);
+    }
+  }
+
+  // First check after 2 s (page just loaded), then every POLL_MS thereafter.
+  setTimeout(_checkBackend, 2000);
+  setInterval(_checkBackend, POLL_MS);
+})();
+</script>
 </body>
 </html>

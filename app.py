@@ -253,6 +253,11 @@ def index():
     return render_template("index.html", version=VERSION, local_certs=_find_local_certs())
 
 
+@app.route("/api/ping")
+def ping():
+    return jsonify({"ok": True, "version": VERSION})
+
+
 @app.route("/api/connect", methods=["POST"])
 def connect():
     data = request.json
