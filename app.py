@@ -61,7 +61,7 @@ from requests.adapters import HTTPAdapter
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-VERSION = "26.09.0.130"
+VERSION = "26.10.0.131"
 
 
 def _load_fernet():

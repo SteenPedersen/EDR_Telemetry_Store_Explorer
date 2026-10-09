@@ -2,7 +2,7 @@
 
 A browser-based search and investigation tool for querying and analysing EDR telemetry stored in an OpenSearch cluster. Designed for security analysts working with endpoint-detection and response data.
 
-**Current version: 26.09.0.130**
+**Current version: 26.10.0.131**
 
 ---
 

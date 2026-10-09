@@ -1,4 +1,23 @@
 Release Notes — EDR Telemetry Store Explorer
+Version 26.10.0.131
+
+
+DARK MODE
+---------
+- Scrollbars now styled for dark mode in Chrome and Edge (WebKit ::-webkit-scrollbar)
+  and Firefox (scrollbar-color). Track uses sidebar background (#161b22); thumb is
+  dark grey (#484f58) with a lighter hover state (#6e7681).
+- Hunt Target Definitions regex pattern and field name display spans now use
+  --bs-tertiary-bg / --bs-body-color so they render correctly in dark mode instead
+  of remaining light grey.
+
+HUNT — IP ADDRESS REGEX
+------------------------
+- IP address regex now validates each octet to 0–255, rejecting values such as
+  999.2.3.45 or 256.x.x.x that were previously accepted.
+- Leading zeros are accepted per octet (e.g. 026.003.193.004, 26.003.233.5).
+
+
 Version 26.09.0.130
 
 
