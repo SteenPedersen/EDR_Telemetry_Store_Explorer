@@ -380,9 +380,9 @@
     .hunt-md5      { background: rgba(59,130,246,.18); color: #2563eb; border-radius: 2px; padding: 0 2px; }
     .hunt-sha1     { background: rgba(139,92,246,.18); color: #7c3aed; border-radius: 2px; padding: 0 2px; }
     .hunt-sha256   { background: rgba(99,102,241,.18); color: #4f46e5; border-radius: 2px; padding: 0 2px; }
-    .hunt-ip       { background: rgba(16,185,129,.18); color: #059669; border-radius: 2px; padding: 0 2px; }
-    .hunt-url      { background: rgba(6,182,212,.18);  color: #0891b2; border-radius: 2px; padding: 0 2px; }
-    .hunt-dns      { background: rgba(20,184,166,.18); color: #0d9488; border-radius: 2px; padding: 0 2px; }
+    .hunt-ip       { background: rgba(2,132,199,.18);   color: #0284c7; border-radius: 2px; padding: 0 2px; }
+    .hunt-url      { background: rgba(22,163,74,.18);   color: #16a34a; border-radius: 2px; padding: 0 2px; }
+    .hunt-dns      { background: rgba(225,29,72,.18);   color: #e11d48; border-radius: 2px; padding: 0 2px; }
     .hunt-registry { background: rgba(249,115,22,.18); color: #ea580c; border-radius: 2px; padding: 0 2px; }
     .hunt-process  { background: rgba(234,179,8,.18);  color: #b45309; border-radius: 2px; padding: 0 2px; }
     .hunt-cmdline  { background: rgba(194,65,12,.18);  color: #c2410c; border-radius: 2px; padding: 0 2px; }
@@ -428,9 +428,9 @@
     html.dark .hunt-md5      { background: rgba(59,130,246,.25); color: #93c5fd; }
     html.dark .hunt-sha1     { background: rgba(139,92,246,.25); color: #c4b5fd; }
     html.dark .hunt-sha256   { background: rgba(99,102,241,.25); color: #a5b4fc; }
-    html.dark .hunt-ip       { background: rgba(16,185,129,.25); color: #6ee7b7; }
-    html.dark .hunt-url      { background: rgba(6,182,212,.25);  color: #67e8f9; }
-    html.dark .hunt-dns      { background: rgba(20,184,166,.25); color: #5eead4; }
+    html.dark .hunt-ip       { background: rgba(2,132,199,.25);   color: #38bdf8; }
+    html.dark .hunt-url      { background: rgba(22,163,74,.25);   color: #4ade80; }
+    html.dark .hunt-dns      { background: rgba(225,29,72,.25);   color: #fb7185; }
     html.dark .hunt-registry { background: rgba(249,115,22,.25); color: #fdba74; }
     html.dark .hunt-process  { background: rgba(234,179,8,.25);  color: #fde047; }
     html.dark .hunt-cmdline  { background: rgba(194,65,12,.25);  color: #fdba74; }
@@ -2419,8 +2419,9 @@ function buildPositiveClause(f) {
     return { range: { [f.field]: { gte: f.value, lt: nextDay(f.value) } } };
   }
   const op = f.op || 'contains';
-  if (op === 'equals'   || op === 'not_equals')   return { term:    { [f.field]: f.value } };
-  if (op === 'gt')                                 return { range:   { [f.field]: { gt:  f.value } } };
+  if (op === 'equals'       || op === 'not_equals')       return { term:         { [f.field]: f.value } };
+  if (op === 'match_phrase' || op === 'not_match_phrase') return { match_phrase: { [f.field]: f.value } };
+  if (op === 'gt')                                        return { range:        { [f.field]: { gt:  f.value } } };
   if (op === 'gte')                                return { range:   { [f.field]: { gte: f.value } } };
   if (op === 'lt')                                 return { range:   { [f.field]: { lt:  f.value } } };
   if (op === 'lte')                                return { range:   { [f.field]: { lte: f.value } } };
@@ -2440,7 +2441,7 @@ function applyFilters(baseQuery, skipFields = []) {
   );
   if (!valid.length) return baseQuery;
 
-  const isNeg  = f => (f.op === 'not_equals' || f.op === 'not_contains' || f.op === 'not_exists');
+  const isNeg  = f => (f.op === 'not_equals' || f.op === 'not_contains' || f.op === 'not_exists' || f.op === 'not_match_phrase');
   const negFilters = valid.filter(isNeg);
   const posAnd = valid.filter(f => !isNeg(f) && f.logic !== 'or');
   const posOr  = valid.filter(f => !isNeg(f) && f.logic === 'or');
@@ -2475,7 +2476,7 @@ function applyClientFilters(hits) {
   });
   if (!cf.length) return hits;
 
-  const isNeg     = f => f.op === 'not_equals' || f.op === 'not_contains' || f.op === 'not_exists';
+  const isNeg     = f => f.op === 'not_equals' || f.op === 'not_contains' || f.op === 'not_exists' || f.op === 'not_match_phrase';
   const negFilters = cf.filter(isNeg);
   const posAnd     = cf.filter(f => !isNeg(f) && f.logic !== 'or');
   const posOr      = cf.filter(f => !isNeg(f) && f.logic === 'or');
@@ -2483,9 +2484,10 @@ function applyClientFilters(hits) {
   const match = (f, val) => {
     const op = f.op || 'contains';
     const v  = String(val ?? '');
-    if (op === 'equals'       || op === 'not_equals')   return v === f.value;
-    if (op === 'contains'     || op === 'not_contains') return v.toLowerCase().includes(f.value.toLowerCase());
-    if (op === 'exists'       || op === 'not_exists')   return v !== '';
+    if (op === 'equals'       || op === 'not_equals')       return v === f.value;
+    if (op === 'match_phrase' || op === 'not_match_phrase') return v.toLowerCase().includes(f.value.toLowerCase());
+    if (op === 'contains'     || op === 'not_contains')     return v.toLowerCase().includes(f.value.toLowerCase());
+    if (op === 'exists'       || op === 'not_exists')       return v !== '';
     return v.toLowerCase().includes(f.value.toLowerCase());
   };
 
@@ -2494,6 +2496,45 @@ function applyClientFilters(hits) {
     if (negFilters.some(f => match(f, val)))                 return false;
     if (posAnd.length && !posAnd.every(f => match(f, val))) return false;
     if (posOr.length  && !posOr.some(f  => match(f, val)))  return false;
+    return true;
+  });
+}
+
+// Post-filter hits against _source for fields OpenSearch may not index.
+// Runs after every search response as a safety net; idempotent for indexed fields.
+function _applySourceFilter(hits) {
+  const OPS = new Set(['equals','not_equals','contains','not_contains','match_phrase','not_match_phrase']);
+  const fs = activeFilters.filter(f =>
+    OPS.has(f.op ?? 'contains') &&
+    f.value !== '' &&
+    !f.field.includes(',') &&
+    !f.field.startsWith('_')
+  );
+  if (!fs.length) return hits;
+
+  const srcVal = (src, field) => {
+    let v = src;
+    for (const k of field.split('.')) { if (v == null) return ''; v = v[k]; }
+    return v == null ? '' : String(v);
+  };
+
+  const hit_match = (f, src) => {
+    const v  = srcVal(src, f.field);
+    const op = f.op ?? 'contains';
+    if (op === 'equals' || op === 'not_equals') return v === f.value;
+    return v.toLowerCase().includes(f.value.toLowerCase());
+  };
+
+  const isNeg = op => op === 'not_equals' || op === 'not_contains' || op === 'not_match_phrase';
+  const neg    = fs.filter(f => isNeg(f.op ?? 'contains'));
+  const posAnd = fs.filter(f => !isNeg(f.op ?? 'contains') && f.logic !== 'or');
+  const posOr  = fs.filter(f => !isNeg(f.op ?? 'contains') && f.logic === 'or');
+
+  return hits.filter(hit => {
+    const src = hit._source ?? {};
+    if (neg.some(f    => hit_match(f, src)))               return false;
+    if (posAnd.length && !posAnd.every(f => hit_match(f, src))) return false;
+    if (posOr.length  && !posOr.some(f  => hit_match(f, src)))  return false;
     return true;
   });
 }
@@ -2533,7 +2574,7 @@ async function doInitialLoad() {
     });
     const d = await r.json();
     if (d.hits) {
-      lastResults = d.hits?.hits ?? [];
+      lastResults = _applySourceFilter(d.hits?.hits ?? []);
       const _t0 = d.hits?.total?.value ?? d.hits?.total ?? 0;
       renderResults(d, size, 0);
       renderTableView(lastResults, _t0, d.took ?? 0, 'Latest 100 events — auto-loaded on connect');
@@ -2570,6 +2611,7 @@ async function doGroupInitialLoad() {
       (d.hits?.hits ?? []).map(hit => ({ ...hit, _source: { ...hit._source, _serverName: srv.name } }))
     );
     merged = applyClientFilters(merged);
+    merged = _applySourceFilter(merged);
     merged.sort((a, b) => String(b._source[tf] ?? '').localeCompare(String(a._source[tf] ?? '')));
     const totalVal = responses.reduce((s, { d }) => s + (d.hits?.total?.value ?? 0), 0);
     const tookVal  = Math.max(0, ...responses.map(({ d }) => d.took ?? 0));
@@ -2739,6 +2781,7 @@ async function doSearch() {
         }))
       );
       merged = applyClientFilters(merged);
+      merged = _applySourceFilter(merged);
       const tf = document.getElementById('tail-time-field').value.trim() || 'time';
       merged.sort((a, b) => String(b._source[tf] ?? '').localeCompare(String(a._source[tf] ?? '')));
       const totalVal = responses.reduce((s, { d }) => s + (d.hits?.total?.value ?? 0), 0);
@@ -2762,10 +2805,13 @@ async function doSearch() {
     const _stayOn = (_activePanel === 'table' || _activePanel === 'results') ? _activePanel : 'results';
     if (d.error && !d.hits) { showError(JSON.stringify(d, null, 2)); showPanel(_stayOn); }
     else {
-      lastResults = d.hits?.hits ?? [];
+      lastResults = _applySourceFilter(d.hits?.hits ?? []);
       const _total = d.hits?.total?.value ?? d.hits?.total ?? 0;
       _tblPending     = { hits: lastResults, total: _total, took: d.took ?? 0 };
-      _resultsPending = { data: d, size, fromVal };
+      const _d    = lastResults.length !== (d.hits?.hits?.length ?? 0)
+        ? { ...d, hits: { ...d.hits, hits: lastResults } }
+        : d;
+      _resultsPending = { data: _d, size, fromVal };
       showPanel(_stayOn); // consumes whichever pending state matches active tab, renders in rAF
       const _cp = connPayload();
       requestAnimationFrame(() =>
@@ -10460,17 +10506,25 @@ let _ctxState = null; // { field, rawStr, hit }
     document.getElementById('ctx-include').addEventListener('click', e => {
       e.stopPropagation();
       if (_ctxState && _ctxState.rawStr && _ctxState.rawStr !== '—') {
-        const isNum = /^-?\d+(\.\d+)?$/.test(String(_ctxState.rawStr).trim());
-        addOptFilter('term', _ctxState.field, _ctxState.rawStr, isNum ? 'equals' : 'contains');
+        const v      = String(_ctxState.rawStr).trim();
+        const isNum  = /^-?\d+(\.\d+)?$/.test(v);
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+        addOptFilter('term', _ctxState.field, _ctxState.rawStr, isNum || isUuid ? 'equals' : 'contains');
+        _hideCtx();
+        doSearch();
+      } else {
+        _hideCtx();
       }
-      _hideCtx();
     });
     document.getElementById('ctx-exclude').addEventListener('click', e => {
       e.stopPropagation();
       if (_ctxState && _ctxState.rawStr && _ctxState.rawStr !== '—') {
         addFilter(_ctxState.field, _ctxState.rawStr, 'term', 'and', 'not_equals');
+        _hideCtx();
+        doSearch();
+      } else {
+        _hideCtx();
       }
-      _hideCtx();
     });
     document.getElementById('ctx-story-branch').addEventListener('click', e => {
       e.stopPropagation();

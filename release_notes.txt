@@ -1,4 +1,35 @@
 Release Notes — EDR Telemetry Store Explorer
+Version 26.10.0.132
+
+
+FILTERS — CLIENT-SIDE POST-FILTER
+-----------------------------------
+- Added _applySourceFilter(): runs after every OpenSearch response and re-applies
+  active equals / not_equals / contains / not_contains / match_phrase filters
+  directly against _source field values. Enforces filtering on fields that are
+  stored in _source but not indexed in OpenSearch (e.g. contextTraceId with
+  index:false or dynamic:false mapping). For indexed fields the pass is idempotent.
+  Covers all search paths: single-server, server-group, and initial auto-load.
+- Tip: when filtering on a non-indexed field, set a larger page size (e.g. 500)
+  so the client-side pass has access to all relevant events.
+
+FILTERS — match_phrase / not_match_phrase OPERATORS
+----------------------------------------------------
+- New match_phrase and not_match_phrase filter operators wired throughout:
+  buildPositiveClause, applyFilters isNeg check, and applyClientFilters match().
+  Allows explicit phrase-sequence queries on analyzed text fields alongside the
+  existing equals (term) and contains (wildcard) operators.
+
+HUNT — IOC COLOR ALIGNMENT
+---------------------------
+- Hunt box text overlay colors for IP Address, URL, and DNS / Domain now match
+  the colors used in the Extracted IOCs panel (ht.color from HUNT_TYPES):
+    IP Address: #0284c7 (light) / #38bdf8 (dark)  — was green
+    URL:        #16a34a (light) / #4ade80 (dark)  — was cyan
+    DNS/Domain: #e11d48 (light) / #fb7185 (dark)  — was teal
+  The hunt box and Extracted IOCs section now use the same color for every type.
+
+
 Version 26.10.0.131
 
 
